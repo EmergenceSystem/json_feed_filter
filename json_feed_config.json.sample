@@ -1,0 +1,5 @@
+{
+    "json_feeds": [
+        "https://example.com/feed.json"
+    ]
+}
