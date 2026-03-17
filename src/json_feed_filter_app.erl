@@ -5,30 +5,33 @@
 %%% each feed, and returns items whose title, url or summary matches
 %%% the search query.
 %%%
-%%% JSON Feed is the modern successor to RSS/Atom — same concept but
-%%% pure JSON. No XML parser needed.
+%%% Deduplication by URL is handled upstream by the Emquest pipeline.
 %%%
-%%% Spec: https://jsonfeed.org/version/1.1
+%%% === Capability cascade ===
+%%%
+%%%   base_capabilities/0 extends em_filter:base_capabilities().
+%%%   Site-specific filters extend json_feed_filter_app:base_capabilities():
 %%%
 %%% json_feed_config.json format:
 %%%   { "json_feeds": ["https://example.com/feed.json", ...] }
 %%%
-%%% Handler contract: handle/2 (Body, Memory) -> {RawList, NewMemory}.
-%%% Memory schema: #{seen => #{binary_url => true}}.
+%%% Handler contract: handle/2 (Body, Memory) -> {RawList, Memory}.
 %%% @end
 %%%-------------------------------------------------------------------
 -module(json_feed_filter_app).
 -behaviour(application).
 
 -export([start/2, stop/1]).
--export([handle/2]).
+-export([handle/2, base_capabilities/0]).
 
--define(CAPABILITIES, [
-    <<"json_feed">>,
-    <<"feeds">>,
-    <<"news">>,
-    <<"blog">>
-]).
+%%====================================================================
+%% Capability cascade
+%%====================================================================
+
+-spec base_capabilities() -> [binary()].
+base_capabilities() ->
+    em_filter:base_capabilities() ++ [<<"json_feed">>, <<"feeds">>,
+                                      <<"news">>, <<"blog">>].
 
 %%====================================================================
 %% Application behaviour
@@ -36,8 +39,7 @@
 
 start(_StartType, _StartArgs) ->
     em_filter:start_agent(json_feed_filter, ?MODULE, #{
-        capabilities => ?CAPABILITIES,
-        memory       => ets
+        capabilities => base_capabilities()
     }).
 
 stop(_State) ->
@@ -48,14 +50,7 @@ stop(_State) ->
 %%====================================================================
 
 handle(Body, Memory) when is_binary(Body) ->
-    Seen    = maps:get(seen, Memory, #{}),
-    Embryos = generate_embryo_list(Body),
-    Fresh   = [E || E <- Embryos, not maps:is_key(url_of(E), Seen)],
-    NewSeen = lists:foldl(fun(E, Acc) ->
-        Acc#{url_of(E) => true}
-    end, Seen, Fresh),
-    {Fresh, Memory#{seen => NewSeen}};
-
+    {generate_embryo_list(Body), Memory};
 handle(_Body, Memory) ->
     {[], Memory}.
 
@@ -116,7 +111,9 @@ search_feeds([FeedUrl | Rest], Query, Start, Timeout, Acc) ->
 
 fetch_and_filter_feed(FeedUrl, Query, Start, Timeout, Acc) ->
     Url = binary_to_list(FeedUrl),
-    case httpc:request(get, {Url, [{"Accept", "application/feed+json, application/json"}]},
+    case httpc:request(get,
+                       {Url, [{"Accept",
+                               "application/feed+json, application/json"}]},
                        [{timeout, 5000}], [{body_format, binary}]) of
         {ok, {{_, 200, _}, _, Body}} ->
             try json:decode(Body) of
@@ -151,8 +148,6 @@ process_item(Item, Query) ->
     Title   = to_str(maps:get(<<"title">>,        Item, <<>>)),
     Url     = to_str(maps:get(<<"url">>,          Item,
                   maps:get(<<"id">>,              Item, <<>>))),
-    %% content_text is preferred over content_html (no HTML to strip).
-    %% Fall back to summary if neither is present.
     Summary = to_str(maps:get(<<"content_text">>, Item,
                   maps:get(<<"summary">>,         Item,
                   maps:get(<<"content_html">>,    Item, <<>>)))),
@@ -174,13 +169,5 @@ process_item(Item, Query) ->
             skip
     end.
 
-%%====================================================================
-%% Internal helpers
-%%====================================================================
-
 to_str(B) when is_binary(B) -> binary_to_list(B);
 to_str(_)                   -> "".
-
--spec url_of(map()) -> binary().
-url_of(#{<<"properties">> := #{<<"url">> := Url}}) -> Url;
-url_of(_) -> <<>>.
