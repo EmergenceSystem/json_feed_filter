@@ -1,6 +1,6 @@
 {application, json_feed_filter, [
     {description, "em_filter lib to handle JSON Feed (jsonfeed.org)"},
-    {vsn, "0.2.1"},
+    {vsn, "0.2.2"},
     {registered, []},
     {mod, {json_feed_filter_app, []}},
     {applications, [
