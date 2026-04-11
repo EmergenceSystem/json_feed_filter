@@ -19,9 +19,7 @@
 %%% @end
 %%%-------------------------------------------------------------------
 -module(json_feed_filter_app).
--behaviour(application).
 
--export([start/2, stop/1]).
 -export([handle/2, base_capabilities/0]).
 
 %%====================================================================
@@ -32,19 +30,6 @@
 base_capabilities() ->
     em_filter:base_capabilities() ++ [<<"json_feed">>, <<"feeds">>,
                                       <<"news">>, <<"blog">>].
-
-%%====================================================================
-%% Application behaviour
-%%====================================================================
-
-start(_StartType, _StartArgs) ->
-    em_filter:start_agent(json_feed_filter, ?MODULE, #{
-        capabilities => base_capabilities()
-    }),
-    {ok, self()}.
-
-stop(_State) ->
-    em_filter:stop_agent(json_feed_filter).
 
 %%====================================================================
 %% Agent handler
